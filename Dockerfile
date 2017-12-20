@@ -1,15 +1,14 @@
 FROM alpine:edge AS build-env
-ENV BERKELEYDB_VERSION=db-4.8.30.NC
-ENV BERKELEYDB_PREFIX=/opt/${BERKELEYDB_VERSION}
-ENV YTENTEN_VERSION=1.2.1
-ENV YTENTE_FOLDER_VERSION=1.2.1
-ENV YENTEN_PREFIX=/opt/yenten-${YTENTEN_VERSION}
-ENV YENTEN_DATA=/home/yenten/.yenten
-ENV PATH=${YENTEN_PREFIX}/bin:$PATH
-ENV gpp_version 6.4.0-r5
-ENV dependencies "git autoconf automake libtool g++=${gpp_version} make boost-dev libressl-dev miniupnpc-dev protobuf-dev libqrencode-dev libevent-dev"
+ENV BERKELEYDB_VERSION=db-4.8.30.NC \
+  BERKELEYDB_PREFIX=/opt/${BERKELEYDB_VERSION} \
+  YENTEN_USER=yenten \
+  YTENTEN_VERSION=1.2.1 \
+  YENTEN_PREFIX=/opt/yenten-${YTENTEN_VERSION} \
+  YENTEN_DATA=/home/${YENTEN_USER}/.yenten \
+  PATH=${YENTEN_PREFIX}/bin:$PATH \
+  BUILD_DEPENDENCIES="git build-base autoconf automake libtool g++ make boost-dev libressl-dev miniupnpc-dev protobuf-dev libqrencode-dev libevent-dev build-base"
 
-RUN apk --no-cache --update add ${dependencies} && \
+RUN apk --no-cache --update add ${BUILD_DEPENDENCIES} && \
   mkdir -p /tmp/build && \
   mkdir -p /tmp/build/${YENTEN_VERSION} && \
   mkdir -p ${YENTEN_PREFIX} && \
@@ -18,7 +17,9 @@ RUN apk --no-cache --update add ${dependencies} && \
   sed s/__atomic_compare_exchange/__atomic_compare_exchange_db/g -i /tmp/build/${BERKELEYDB_VERSION}/dbinc/atomic.h && \
   mkdir -p ${BERKELEYDB_PREFIX} && \
   cd /tmp/build/${BERKELEYDB_VERSION}/build_unix && \
-  ../dist/configure --enable-cxx --disable-shared --with-pic --prefix=${BERKELEYDB_PREFIX} && \
+  ../dist/configure CPPFLAGS="-Wno-format-security" \
+    --enable-cxx --disable-shared --with-pic \
+    --prefix=${BERKELEYDB_PREFIX} && \
   make install && \
   cd /tmp/build/${YENTEN_VERSION} && \
   git clone https://github.com/conan-equal-newone/yenten.git && \
@@ -31,15 +32,27 @@ RUN apk --no-cache --update add ${dependencies} && \
   make install
 
 FROM alpine:edge as runtime
-ENV YTENTEN_VERSION=1.2.1
-ENV SRC_YENTEN_PREFIX=/opt/yenten-${YTENTEN_VERSION}
-ENV TARGET_YENTEN_PREFIX=/opt/yenten
+ENV YTENTEN_VERSION=1.2.1 \
+  YENTEN_USER=yenten \
+  YENTEN_DATA=/home/${YENTEN_USER}/.yenten \
+  SRC_YENTEN_PREFIX=/opt/yenten-${YTENTEN_VERSION} \
+  TARGET_YENTEN_PREFIX=/opt/yenten
 RUN mkdir /lib64 && ln -s /lib/libc.musl-x86_64.so.1 /lib64/ld-linux-x86-64.so.2 && \
-  apk add --no-cache ca-certificates boost libressl miniupnpc protobuf libqrencode libevent boost-program_options && \
-  mkdir -p ${YENTEN_PREFIX}/bin/
-COPY --from=build-env ${SRC_YENTEN_PREFIX}/bin/yentend ${TARGET_YENTEN_PREFIX}/bin/yentend
-COPY --from=build-env ${SRC_YENTEN_PREFIX}/bin/yentend ${TARGET_YENTEN_PREFIX}/bin/yenten-cli
-VOLUME /home/yenten/.yenten
-EXPOSE 9982 9982
-ENTRYPOINT [ "/bin/sh" ]
-#ENTRYPOINT [ ${TARGET_YENTEN_PREFIX}/bin/yentend ]
+  apk add --no-cache ca-certificates shadow \
+    boost boost-program_options \
+    libressl miniupnpc protobuf libqrencode libevent && \
+  mkdir -p ${TARGET_YENTEN_PREFIX}/bin/ && \
+  adduser -D ${YENTEN_USER}
+COPY --from=build-env ${SRC_YENTEN_PREFIX}/bin/ ${TARGET_YENTEN_PREFIX}/bin/
+
+USER ${YENTEN_USER}
+ENV YENTEN_USER=yenten \
+  YENTEN_DATA=/home/${YENTEN_USER}/.yenten \
+  TARGET_YENTEN_PREFIX=/opt/yenten
+RUN mkdir -p ${YENTEN_DATA}
+
+VOLUME ${YENTEN_DATA}
+
+COPY docker-entrypoint.sh /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
+EXPOSE 9981 9982
