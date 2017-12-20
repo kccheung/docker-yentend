@@ -6,3 +6,4 @@
 /conf/db.log
 /conf/debug.log
 /conf/wallet.dat
+/conf/peers.dat
