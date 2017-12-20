@@ -1,0 +1,8 @@
+
+/conf/blocks
+/conf/chainstate
+/conf/database
+/conf/.lock
+/conf/db.log
+/conf/debug.log
+/conf/wallet.dat
